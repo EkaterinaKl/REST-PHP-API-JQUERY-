@@ -8,23 +8,20 @@ include ("db.php");
 //проверка и защита вводимых данных
 include ("validate.php");
 
-//isset - проверка всех значений
-//!сообщение об ошибке
 //обернуть в интерфейс
-// внешние ключи !!!новый Damp
+
 //*********************************
 //PDOStatement::rowCount() does not return the number of rows affected by a SELECT statement
 //если программа завершается, то можно не использовать unset
 //Регулярные выражения в формате PCPE выполняются быстрее чем в EREG
+//Функции preg выполняются быстрее, но каталог может быть сформирован на различных языках
 //*********************************
-
-//проерка по беломи списку одного поля
 
 //описать api 
 
 // api http://webonrails.ru/post/208650773725188702/
 
-//оперделяет был ли вывод
+//определяет был ли вывод
 $result_out=false; 
 
 if ($count_errors>0) {
@@ -50,7 +47,8 @@ if (isset($adress)) {findByAdress($adress);}
 
 function findByAdress ($adress) {
 	global $conn; global $result_out;
-//фильтр по белому списку
+	//фильтр по белому списку ниже
+	//поскольку устаовлено сопоставление ci, то операции с регистром можно не выполнять
 	$adress = strtolower($adress);
 
 	if ($id_type==TYPE_FLEX) {
@@ -266,7 +264,7 @@ if (isset($name)) {findByName($name);}
 function findByName($name) {
 	global $conn; global $result_out;
 	
-	//$name = mb_ereg_replace("/[^a-zа-яё0-9/]/", "", $name);
+	$name = mb_ereg_replace("/[^a-zа-яё0-9/-]/", "", $name);
 	try { 
 		$select = $conn->query("SELECT company.name,building.adress FROM building
 			INNER JOIN company ON (building.id_b = company.id_b) where company.name LIKE CONCAT('%', '$name', '%')");
