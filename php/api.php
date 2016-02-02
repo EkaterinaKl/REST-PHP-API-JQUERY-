@@ -9,21 +9,29 @@ include ("db.php");
 include ("validate.php");
 
 //isset - проверка всех значений
-//обработка ошибок в pdo
 //!сообщение об ошибке
 //обернуть в интерфейс
-//производительность?
 // внешние ключи !!!новый Damp
-//query на numrow
+//*********************************
+//PDOStatement::rowCount() does not return the number of rows affected by a SELECT statement
+//если программа завершается, то можно не использовать unset
+//Регулярные выражения в формате PCPE выполняются быстрее чем в EREG
+//*********************************
+
 //проерка по беломи списку одного поля
+
 //описать api 
 
 // api http://webonrails.ru/post/208650773725188702/
+
+//оперделяет был ли вывод
+$result_out=false; 
 
 if ($count_errors>0) {
 	//TODO можно фиксировать переменные в которых ошибка
 	$obj = (object) array('result' => false,'error' => "Неверные входные данные" );
 	echo json_encode($obj); 
+	$result_out=true;
 	exit;	
 }
 
@@ -41,7 +49,7 @@ const TYPE_RECT = 3;
 if (isset($adress)) {findByAdress($adress);}
 
 function findByAdress ($adress) {
-	global $conn;
+	global $conn; global $result_out;
 //фильтр по белому списку
 	$adress = strtolower($adress);
 
@@ -65,17 +73,29 @@ function findByAdress ($adress) {
 		$condition="LOWER(building.adress)='$adress'";
 
 	}
+	try { 
+		$select = $conn->query("SELECT name, adress FROM company INNER JOIN building ON company.id_b=building.id_b WHERE $condition");
 
-	$select = $conn->query("SELECT name, adress FROM company INNER JOIN building ON company.id_b=building.id_b WHERE $condition");
+		$select->setFetchMode(PDO::FETCH_OBJ);
+		$items = $select->fetchAll();
+		$row_num=count($items);
 
-	$select->setFetchMode(PDO::FETCH_OBJ);
-	$items = $select->fetchAll();
-	$row_num=count($items);
+		$obj = (object) array('result' => true , 'count' => "Найдено записей: ".$row_num, 'items'=>$items);
+		echo json_encode($obj); 
+		$result_out=true;
+		
 
-	$obj = (object) array('result' => true , 'count' => "Найдено записей: ".$row_num, 'items'=>$items);
-	echo json_encode($obj); 
-	unset($items);
+		unset($select);
+	}  
+	catch(PDOException $e) {  
+		$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+		echo json_encode($obj); 
+		$result_out=true;
+		
+		
+		exit;
 
+	}
 }
 
 
@@ -86,73 +106,130 @@ if (isset($id_ca) && !isset($action)) {findByCat($id_ca, "");}
 
 
 function findByCat ($id_ca, $action) {
-	global $conn;
-	$select = $conn->query("SELECT name FROM company INNER JOIN catalog_company ON company.id_c=catalog_company.id_c WHERE catalog_company.id_ca=$id_ca");
-	$select->setFetchMode(PDO::FETCH_OBJ);
-	$items = $select->fetchAll();
-	$row_num=count($items);
-	$obj = (object) array('result' => true , 'count' => "Найдено записей: ".$row_num, 'items'=>$items);
-	echo json_encode($obj); 
-	unset($items);
+	global $conn; global $result_out;
+	try { 
+		$select = $conn->query("SELECT name FROM company INNER JOIN catalog_company ON company.id_c=catalog_company.id_c WHERE catalog_company.id_ca=$id_ca");
+		$select->setFetchMode(PDO::FETCH_OBJ);
+		$items = $select->fetchAll();
+		unset($select);
+		$row_num=count($items);
+		$obj = (object) array('result' => true , 'count' => "Найдено записей: ".$row_num, 'items'=>$items);
+		echo json_encode($obj); 
+		$result_out=true;
+		
+		
+	}  
+	catch(PDOException $e) {  
+		$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+		echo json_encode($obj);
+		$result_out=true;
+
+		exit;
+
+	}
 
 }
 
-if (isset($num_x) && isset($num_y) ) {findByCoord($num_x, $num_y, @$num_R, @$num_x1, @$num_y1,$id_type); }
+if (isset($num_x) && isset($num_y) ) {
+
+	$params = array("num_x"=>$num_x, "num_y"=>$num_y, "num_R"=> (!isset($num_R))?0:$num_R, "num_x1"=> (!isset($num_x1))?0:$num_x1,"num_y1"=> (!isset($num_y1))?0:$num_y1, "id_type"=>$id_type);
+
+	findByCoord ($params);
+}
 
 //список организаций, которые находятся в заданном радиусе/прямоугольной области относительно указанной точки на карте.
-function findByCoord ($num_x, $num_y, $num_R, $num_x1, $num_y1,$id_type) {
+function findByCoord ($params) {
 
-	global $conn;	
-	if (!isset($num_R)) {$num_R=0;};
-	if (!isset($num_x1)) {$num_x1=$num_x;};
-	if (!isset($num_y1)) {$num_y1=$num_y;};
+	global $conn; global $result_out;
+
+	foreach( $params as $field => $val)
+	{
+		$$field = $val;
+	}
+
+
 
 	if ($id_type==TYPE_CIRCLE) {
 //круг
+		try { 
+			$select = $conn->query("SELECT company.name, building.x, building.y
+				FROM building
+				INNER JOIN company ON (building.id_b = company.id_b) WHERE POW(($num_x-building.x),2)+POW(($num_y-building.y),2)<=POW(($num_R),2)");
+			$select->setFetchMode(PDO::FETCH_OBJ);
+			
+	//unset($num_y);
+		}  
+		catch(PDOException $e) {  
+			$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+			echo json_encode($obj);
+			$result_out=true;
+			
 
-		$select = $conn->query("SELECT company.name, building.x, building.y
-			FROM building
-			INNER JOIN company ON (building.id_b = company.id_b) WHERE POW(($num_x-building.x),2)+POW(($num_y-building.y),2)<=POW(($num_R),2)");
-		$select->setFetchMode(PDO::FETCH_OBJ);
+			exit;
+
+		}
 
 	}
 	if ($id_type==TYPE_SQUARE) {
 //квадрат
-		$select = $conn->query("SELECT company.name, building.x, building.y
-			FROM building
-			INNER JOIN company ON (building.id_b = company.id_b) WHERE
+		try { 
+			$select = $conn->query("SELECT company.name, building.x, building.y
+				FROM building
+				INNER JOIN company ON (building.id_b = company.id_b) WHERE
 
-			($num_x+$num_R>=building.x) AND
-			($num_x-$num_R<=building.x) AND
-			($num_y+$num_R>=building.y) AND
-			($num_y-$num_R<=building.y)");
-		$select->setFetchMode(PDO::FETCH_OBJ);
+				($num_x+$num_R>=building.x) AND
+				($num_x-$num_R<=building.x) AND
+				($num_y+$num_R>=building.y) AND
+				($num_y-$num_R<=building.y)");
+			$select->setFetchMode(PDO::FETCH_OBJ);
+			
+		}  
+		catch(PDOException $e) {  
+			$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+			echo json_encode($obj); 
+			$result_out=true;
+			
+			
+			exit;
 
+		}
 
 	}
 
 	if ($id_type==TYPE_RECT) {
 //прямоугольник
+		try { 
+			$select = $conn->query("SELECT company.name, building.x, building.y
+				FROM building
+				INNER JOIN company ON (building.id_b = company.id_b) WHERE
 
-		$select = $conn->query("SELECT company.name, building.x, building.y
-			FROM building
-			INNER JOIN company ON (building.id_b = company.id_b) WHERE
-
-			(building.x<=$num_x1) AND
-			(building.x>=$num_x-($num_x1-$num_x)) AND
-			(building.y<=$num_y1) AND
-			(building.y>=$num_y-($num_y1-$num_y))");
+				(building.x<=$num_x1) AND
+				(building.x>=$num_x-($num_x1-$num_x)) AND
+				(building.y<=$num_y1) AND
+				(building.y>=$num_y-($num_y1-$num_y))");
 
 
-		$select->setFetchMode(PDO::FETCH_OBJ);
+			$select->setFetchMode(PDO::FETCH_OBJ);
 
+		}  
+		catch(PDOException $e) {  
+			$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+			echo json_encode($obj);
+			$result_out=true;
+			
+
+			exit;
+
+		}
 	}
 
 	$items = $select->fetchAll();
+	unset($select);	
 	$row_num=count($items);
 	$obj = (object) array('result' => true , 'count' => "Найдено записей: ".$row_num, 'items'=>$items);
-	echo json_encode($obj); 
-	unset($items);
+	echo json_encode($obj);
+	$result_out=true;
+	
 }
 
 
@@ -160,105 +237,171 @@ function findByCoord ($num_x, $num_y, $num_R, $num_x1, $num_y1,$id_type) {
 if (isset($action) && $action=="'list'") { findBuildings($action);}
 
 function findBuildings ($action) {
-	global $conn;
-	$select = $conn->query("SELECT adress as name FROM building ORDER BY name");
-	$select->setFetchMode(PDO::FETCH_OBJ);
-	$items = $select->fetchAll();
-	$row_num=count($items);
-	$obj = (object) array('result' => true , 'count' => "Найдено записей: ".$row_num, 'items'=>$items);
-	echo json_encode($obj); 
-	unset($items);
+	global $conn; global $result_out;
+	try { 
+		$select = $conn->query("SELECT adress as name FROM building ORDER BY name");
+		$select->setFetchMode(PDO::FETCH_OBJ);
+		$items = $select->fetchAll();
+		unset($select);	
+		$row_num=count($items);
+		$obj = (object) array('result' => true , 'count' => "Найдено записей: ".$row_num, 'items'=>$items);
+		echo json_encode($obj); 
+		$result_out=true;
+		
+	}  
+	catch(PDOException $e) {  
+		$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+		echo json_encode($obj); 
+		$result_out=true;
+		
+
+		exit;
+
+	}
 }
 
 //поиск организации по названию
 if (isset($name)) {findByName($name);}
 
 function findByName($name) {
-	global $conn;
+	global $conn; global $result_out;
 	
 	//$name = mb_ereg_replace("/[^a-zа-яё0-9/]/", "", $name);
+	try { 
+		$select = $conn->query("SELECT company.name,building.adress FROM building
+			INNER JOIN company ON (building.id_b = company.id_b) where company.name LIKE CONCAT('%', '$name', '%')");
+		$select->setFetchMode(PDO::FETCH_OBJ);
+		$items = $select->fetchAll();
+		unset($select);
+		$row_num=count($items);
+		$obj = (object) array('result' => true , 'count' => "Найдено записей: ".$row_num, 'items'=>$items);
+		echo json_encode($obj);
+		$result_out=true;
+		
+		
+	}  
+	catch(PDOException $e) {  
+		$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+		echo json_encode($obj);
+		$result_out=true;
+		
+		
+		exit;
 
-	$select = $conn->query("SELECT company.name,building.adress FROM building
-		INNER JOIN company ON (building.id_b = company.id_b) where company.name LIKE CONCAT('%', '$name', '%')");
-	$select->setFetchMode(PDO::FETCH_OBJ);
-	$items = $select->fetchAll();
-	$row_num=count($items);
-	$obj = (object) array('result' => true , 'count' => "Найдено записей: ".$row_num, 'items'=>$items);
-	echo json_encode($obj); 
-	unset($items);
+	}
 }
 
 //выдача информации об организациях по их идентификаторам
 if (isset($id_c)) {findByID($id_c);}
 function findByID ($id_c) {
-	global $conn;
+	global $conn; global $result_out;
+	
+	try { 
+		$select = $conn->query("SELECT building.adress, company.name
+			FROM  building
+			INNER JOIN  company ON (building.id_b = company.id_b) where company.id_c=$id_c");
+		$select->setFetchMode(PDO::FETCH_OBJ);
+		$items = $select->fetchAll();
+		unset($select);	
+		$row_num=count($items);
+		$obj = (object) array('result' => true , 'count' => "Найдено записей: ".$row_num, 'items'=>$items);
 
-	$select = $conn->query("SELECT building.adress, company.name
-		FROM  building
-		INNER JOIN  company ON (building.id_b = company.id_b) where company.id_c=$id_c");
-	$select->setFetchMode(PDO::FETCH_OBJ);
-	$items = $select->fetchAll();
-	$row_num=count($items);
-	$obj = (object) array('result' => true , 'count' => "Найдено записей: ".$row_num, 'items'=>$items);
+		
+	}  
+	catch(PDOException $e) {  
+		$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+		echo json_encode($obj);
+		$result_out=true;
+		
+		
+		exit;
 
-	unset($items);
-
-//Список телефонов
-	$select = $conn->query("SELECT phone.name
-		FROM (company
-			INNER JOIN company_phone
-			ON (company.id_c = company_phone.id_c))
-	INNER JOIN phone ON (phone.id_ph = company_phone.id_ph) where company.id_c=$id_c");
-	$select->setFetchMode(PDO::FETCH_NUM);
-	$phones="";
-	while($item = $select->fetch()) {  
-		$phones.=$item [0] . "<br>";  
 	}
-	unset($item);
+//Список телефонов
+	try { 
+		$select = $conn->query("SELECT phone.name
+			FROM (company
+				INNER JOIN company_phone
+				ON (company.id_c = company_phone.id_c))
+		INNER JOIN phone ON (phone.id_ph = company_phone.id_ph) where company.id_c=$id_c");
+		$select->setFetchMode(PDO::FETCH_NUM);
+		$phones="";
+		while($item = $select->fetch()) {  
+			$phones.=$item [0] . "<br>";  
+		}
+		
+		unset($select);
 
 //$phones = implode("; ", $items);
-	$obj->items[0]->phones=$phones;
-
- //Path Breadcrumbs
-	$path="";
-	$select = $conn->query("SELECT catalog.id_ca,  catalog.id_right_key,  catalog.id_left_key
-		FROM ( catalog
-			INNER JOIN  catalog_company
-			ON (catalog.id_ca = catalog_company.id_ca))
-	INNER JOIN company
-	ON (company.id_c = catalog_company.id_c) where company.id_c=$id_c");
-	$select->setFetchMode(PDO::FETCH_OBJ);
-	$path.="";
-	while($item = $select->fetch())
-	{
-		$right_key=$item->id_right_key;
-		$left_key=$item->id_left_key;
-		$subselect = $conn->query("SELECT catalog.name
-			FROM catalog
-			where id_left_key <= $left_key AND id_right_key >= $right_key ORDER BY id_left_key");
-		$subselect->setFetchMode(PDO::FETCH_OBJ);
-		$subitem = $subselect->fetch();
-
-		while($subitem = $subselect->fetch())
-		{
-			$path.=$subitem->name." / ";
-		}
-		unset($subitem);
-		$path=substr($path, 0, -2) ;
-		$path.="<br>";
+		$obj->items[0]->phones=$phones;
+	}  
+	catch(PDOException $e) {  
+		$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+		echo json_encode($obj);
+		$result_out=true;
+		
+		
+		exit;
 
 	}
+ //Path Breadcrumbs
+	$path="";
+	try { 
+		$select = $conn->query("SELECT catalog.id_ca,  catalog.id_right_key,  catalog.id_left_key
+			FROM ( catalog
+				INNER JOIN  catalog_company
+				ON (catalog.id_ca = catalog_company.id_ca))
+		INNER JOIN company
+		ON (company.id_c = catalog_company.id_c) where company.id_c=$id_c");
+		$select->setFetchMode(PDO::FETCH_OBJ);
+		$path.="";
+		while($item = $select->fetch())
+		{
+			$right_key=$item->id_right_key;
+			$left_key=$item->id_left_key;
+			try {
+				$subselect = $conn->query("SELECT catalog.name
+					FROM catalog
+					where id_left_key <= $left_key AND id_right_key >= $right_key ORDER BY id_left_key");
+				$subselect->setFetchMode(PDO::FETCH_OBJ);
+				$subitem = $subselect->fetch();
 
-	$obj->items[0]->path=$path;
+				while($subitem = $subselect->fetch())
+				{
+					$path.=$subitem->name." / ";
+				}
+				unset($subitem);
+				unset($subselect);
+				$path=substr($path, 0, -2) ;
+				$path.="<br>";
+			}  
+			catch(PDOException $e) {  
+				$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+				echo json_encode($obj); 
+				$result_out=true;
 
-	echo json_encode($obj);
-	unset($item);
-	unset($obj);
-	unset($select);
-	unset($subselect);
-	unset($path);
-	unset($left_key);
-	unset($right_key);
+
+				exit;
+
+			}
+
+		}
+		unset($item);
+		unset($select);
+		$obj->items[0]->path=$path;
+
+		echo json_encode($obj);
+		$result_out=true;
+		
+	}  
+	catch(PDOException $e) {  
+		$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+		echo json_encode($obj);
+		$result_out=true;
+
+		exit;
+
+	}
 }
 
 //дерево рубрик каталога со всеми предками
@@ -275,14 +418,15 @@ if (isset($action)) {
 		if (isset($id_ca)) {
 			getTree($action, $id_ca );
 		} else {getTree($action,null);}
-	}};
+	}
+};
 
-	function getTree($action, $id_ca ) {
-		global $conn;
+function getTree($action, $id_ca ) {
+	global $conn; global $result_out;
 
-		if (isset($id_ca)) {
+	if (isset($id_ca)) {
 
-
+		try { 
 			$select = $conn->query("SELECT catalog.id_ca,  catalog.id_right_key,  catalog.id_left_key
 				FROM catalog
 				WHERE catalog.id_ca=$id_ca");
@@ -291,48 +435,90 @@ if (isset($action)) {
 			if ($select->rowCount()==0 ) {
 
 				$obj = (object) array('result' => false ,'error'=>'Нет записей');
-				echo json_encode($obj); 
-				exit;};
+				echo json_encode($obj);
+				$result_out=true;
+				exit;
+			};
 
-				$select->setFetchMode(PDO::FETCH_OBJ);
-				$item = $select->fetch();
-				$right_key=$item->id_right_key;
-				$left_key=$item->id_left_key;
+			$select->setFetchMode(PDO::FETCH_OBJ);
+			$item = $select->fetch();
+			$right_key=$item->id_right_key;
+			$left_key=$item->id_left_key;
+			try { 
 				$select = $conn->query("SELECT catalog.name, catalog.level,catalog.id_ca
 					FROM catalog
 					where id_left_key >= $left_key AND id_right_key <= $right_key ORDER BY id_left_key");
 
+			}  
+			catch(PDOException $e) {  
+				$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+				echo json_encode($obj); 
+				$result_out=true;
+
+
+				exit;
+
 			}
-			else 
-			{
-				$select = $conn->query("SELECT catalog.name, catalog.level, catalog.id_ca
-					FROM catalog 
-					ORDER BY id_left_key");
-			}
-
-
-			$tree="<ul>";
-
-			$select->setFetchMode(PDO::FETCH_OBJ);
-			$parent=0;
-			while($item = $select->fetch())
-			{
-				$fork="<li><a href='#' id=".$item->id_ca.">".$item->name."</a></li>";
-				if ($parent<$item->level){$fork="<ul>$fork"; } 
-				if ($parent>$item->level){$fork="</ul>$fork";}
-				$tree.="$fork";
-				$parent=$item->level;	
-			}
-			$tree.="</ul>";
-
-
-
-			$tree_as_array=(object) array('tree' => $tree);
-			$obj = (object) array('result' => true ,'items'=>array($tree_as_array));
-
+		}  
+		catch(PDOException $e) {  
+			$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
 			echo json_encode($obj); 
+			$result_out=true;
+			exit;
+		}
+	}
+
+	else 
+	{
+		try { 
+			$select = $conn->query("SELECT catalog.name, catalog.level, catalog.id_ca
+				FROM catalog 
+				ORDER BY id_left_key");
+		}  
+		catch(PDOException $e) {  
+			$obj = (object) array('result' => false,'error' => "Ошибка выполнения запроса" );
+			echo json_encode($obj); 
+			$result_out=true;
+
+
+			exit;
+
 		}
 
+	}
 
-		flush();
-		?>
+
+	$tree="<ul>";
+	$parent=0;
+	$select->setFetchMode(PDO::FETCH_OBJ);
+
+	while($item = $select->fetch())
+	{
+		$fork="<li><a href='#' id=".$item->id_ca.">".$item->name."</a></li>";
+		if ($parent<$item->level){$fork="<ul>$fork"; } 
+		if ($parent>$item->level){$fork="</ul>$fork";}
+		$tree.="$fork";
+		$parent=$item->level;	
+	}
+	$tree.="</ul>";
+
+
+	unset($select);
+	unset($item);
+
+	$tree_as_array=(object) array('tree' => $tree);
+	$obj = (object) array('result' => true ,'items'=>array($tree_as_array));
+
+	echo json_encode($obj);
+
+	$result_out=true;
+
+}
+
+
+if (!$result_out) {
+	$obj = (object) array('result' => false,'error' => "Не указаны необходимые параметры" );
+	echo json_encode($obj); 
+}
+flush();
+?>
